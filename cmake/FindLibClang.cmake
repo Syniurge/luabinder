@@ -1,0 +1,11 @@
+find_path(LIBCLANG_INCLUDE_DIR clang-c/Index.h)
+
+find_library(LIBCLANG_LIBRARY NAMES clang)
+
+set(LIBCLANG_LIBRARIES ${LIBCLANG_LIBRARY})
+set(LIBCLANG_INCLUDE_DIRS ${LIBCLANG_INCLUDE_DIR})
+
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(LIBCLANG DEFAULT_MSG LIBCLANG_LIBRARY LIBCLANG_INCLUDE_DIR)
+
+mark_as_advanced(LIBCLANG_INCLUDE_DIR LIBCLANG_LIBRARY)

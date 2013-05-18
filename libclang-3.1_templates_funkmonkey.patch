@@ -1,0 +1,420 @@
+diff -rupN clang-3.1.src/include/clang-c/Index.h clang-3.1.src/include/clang-c/Index.h
+--- clang-3.1.src/include/clang-c/Index.h	2012-04-12 12:11:59.000000000 +0200
++++ clang-3.1.src/include/clang-c/Index.h	2012-10-18 21:23:05.943161485 +0200
+@@ -1472,6 +1472,29 @@ enum CXCursorKind {
+ 
+   CXCursor_FirstDecl                     = CXCursor_UnexposedDecl,
+   CXCursor_LastDecl                      = CXCursor_CXXAccessSpecifier,
++  
++  /* FIXME: all numbers need to change, as well as CXCursor_LastDecl */
++  /* \brief An empty template argument, e.g., one that has not
++     been deduced. */
++  CXCursor_TemplateNullArgument          = 60,
++  /* \brief A type template argument */
++  CXCursor_TemplateTypeArgument          = 61,
++  /* \brief  The template argument is a declaration that was provided for a pointer
++     or reference non-type template parameter. */
++  CXCursor_TemplateDeclarationArgument   = 62,
++  /* \brief An integral template argument, that was provided for an integral 
++     non-type template parameter. */
++  CXCursor_TemplateIntegralArgument      = 63,
++  /* \brief A template template argument that was provided for a 
++     template template parameter. */
++  CXCursor_TemplateTemplateArgument      = 64,
++  /* \brief The template argument is a pack expansion of a template name that was 
++     provided for a template template parameter. */
++  CXCursor_TemplateTemplateExpansionArgument = 65,
++  /* \brief The template argument is a value- or type-dependent expression. */
++  CXCursor_TemplateExpressionArgument    = 66,
++  /* \brief The template argument is actually a parameter pack.  */
++  CXCursor_TemplatePackArgument          = 67,
+ 
+   /* References */
+   CXCursor_FirstRef                      = 40, /* Decl references */
+@@ -2483,7 +2506,10 @@ enum CXTypeKind {
+   CXType_FunctionNoProto = 110,
+   CXType_FunctionProto = 111,
+   CXType_ConstantArray = 112,
+-  CXType_Vector = 113
++  CXType_Vector = 113,
++  CXType_TemplateTypeParm = 114,
++  CXType_TemplateSpecialization = 115,
++  CXType_Elaborated = 116
+ };
+ 
+ /**
+@@ -3136,6 +3162,25 @@ CINDEX_LINKAGE enum CXCursorKind clang_g
+  */
+ CINDEX_LINKAGE CXCursor clang_getSpecializedCursorTemplate(CXCursor C);
+ 
++// ==================================================================
++
++CINDEX_LINKAGE unsigned clang_isTemplateArgument(CXCursor C);
++CINDEX_LINKAGE unsigned clang_getTemplateSpecializationNumArguments(CXCursor C);
++CINDEX_LINKAGE CXCursor clang_getTemplateSpecializationArgument(CXCursor C, unsigned Index);
++
++CINDEX_LINKAGE CXType clang_getTemplateArgumentValueAsType(CXCursor C);
++CINDEX_LINKAGE long long clang_getTemplateArgumentValueAsIntegral(CXCursor C);
++CINDEX_LINKAGE CXCursor clang_getTemplateArgumentValueAsDeclaration(CXCursor C);
++CINDEX_LINKAGE CXCursor clang_getTemplateArgumentValueAsTemplate(CXCursor C);
++CINDEX_LINKAGE CXCursor clang_getTemplateArgumentValueAsExpression(CXCursor C);
++
++/** Template Parameters
++*/
++CINDEX_LINKAGE unsigned clang_getTemplateNumParameters(CXCursor C);
++CINDEX_LINKAGE CXCursor clang_getTemplateParameter(CXCursor C, unsigned Index);
++
++// ==================================================================
++
+ /**
+  * \brief Given a cursor that references something else, return the source range
+  * covering that reference.
+diff -rupN clang-3.1.src/tools/libclang/CIndex.cpp clang-3.1.src/tools/libclang/CIndex.cpp
+--- clang-3.1.src/tools/libclang/CIndex.cpp	2012-04-17 00:42:01.000000000 +0200
++++ clang-3.1.src/tools/libclang/CIndex.cpp	2012-10-18 21:27:14.799168367 +0200
+@@ -3601,6 +3601,22 @@ CXString clang_getCursorKindSpelling(enu
+     return createCXString("ObjCDynamicDecl");
+   case CXCursor_CXXAccessSpecifier:
+     return createCXString("CXXAccessSpecifier");
++  case CXCursor_TemplateNullArgument:
++    return createCXString("TemplateNullArgument");
++  case CXCursor_TemplateTypeArgument:
++    return createCXString("TemplateTypeArgument");
++  case CXCursor_TemplateDeclarationArgument:
++    return createCXString("TemplateDeclarationArgument");
++  case CXCursor_TemplateIntegralArgument:
++    return createCXString("TemplateIntegralArgument");
++  case CXCursor_TemplateTemplateArgument:
++    return createCXString("TemplateTemplateArgument");
++  case CXCursor_TemplateTemplateExpansionArgument:
++    return createCXString("TemplateTemplateExpansionArgument");
++  case CXCursor_TemplateExpressionArgument:
++    return createCXString("TemplateExpressionArgument");
++  case CXCursor_TemplatePackArgument:
++    return createCXString("TemplatePackArgument");
+   }
+ 
+   llvm_unreachable("Unhandled CXCursorKind");
+@@ -5524,6 +5540,11 @@ CXCursor clang_getCursorSemanticParent(C
+     }
+   }
+   
++  if (clang_isTemplateArgument(cursor)) {
++    if (Decl *D = getCursorParentDecl(cursor))
++      return MakeCXCursor(D, getCursorTU(cursor));
++  }
++  
+   if (clang_isStatement(cursor.kind) || clang_isExpression(cursor.kind)) {
+     if (Decl *D = getCursorDecl(cursor))
+       return MakeCXCursor(D, getCursorTU(cursor));
+diff -rupN clang-3.1.src/tools/libclang/CIndexCXX.cpp clang-3.1.src/tools/libclang/CIndexCXX.cpp
+--- clang-3.1.src/tools/libclang/CIndexCXX.cpp	2012-01-17 07:56:22.000000000 +0100
++++ clang-3.1.src/tools/libclang/CIndexCXX.cpp	2012-10-18 21:44:28.295196952 +0200
+@@ -13,6 +13,7 @@
+ 
+ #include "CIndexer.h"
+ #include "CXCursor.h"
++#include "CXString.h"
+ #include "CXType.h"
+ #include "clang/AST/DeclCXX.h"
+ #include "clang/AST/DeclTemplate.h"
+@@ -123,5 +124,210 @@ CXCursor clang_getSpecializedCursorTempl
+   
+   return MakeCXCursor(Template, static_cast<CXTranslationUnit>(C.data[2]));
+ }
+-  
++
++unsigned clang_getTemplateSpecializationNumArguments(CXCursor C)
++{
++  if (!clang_isDeclaration(C.kind))
++    return UINT_MAX;
++    
++  Decl *D = getCursorDecl(C);
++  if (!D)
++    return UINT_MAX;
++
++  const TemplateArgumentList* TemplateArgList = 0;
++
++  if (ClassTemplateSpecializationDecl *ClassSpec 
++               = dyn_cast<ClassTemplateSpecializationDecl>(D)) {
++    
++    TemplateArgList =  &(ClassSpec->getTemplateArgs());
++
++  } else if (FunctionDecl *Function = dyn_cast<FunctionDecl>(D)) {
++	FunctionDecl::TemplatedKind TemplKind = Function->getTemplatedKind();
++	switch(TemplKind){
++	  case FunctionDecl::TK_MemberSpecialization: 
++	  case FunctionDecl::TK_DependentFunctionTemplateSpecialization: 
++	  case FunctionDecl::TK_FunctionTemplateSpecialization: 
++		TemplateArgList = Function->getTemplateSpecializationArgs();
++		break;
++	  default: break;
++	}
++  }
++
++  return (TemplateArgList == 0) ? UINT_MAX : TemplateArgList->size();
++}
++
++CXCursor clang_getTemplateSpecializationArgument(CXCursor C, unsigned Index)
++{
++  if (!clang_isDeclaration(C.kind))
++    return clang_getNullCursor();
++    
++  Decl *D = getCursorDecl(C);
++  if (!D)
++    return clang_getNullCursor();
++
++  const TemplateArgumentList* TemplateArgList = 0;
++  if (ClassTemplateSpecializationDecl *ClassSpec 
++               = dyn_cast<ClassTemplateSpecializationDecl>(D)) {
++    
++    TemplateArgList = &(ClassSpec->getTemplateArgs());
++
++  } else if (FunctionDecl *Function = dyn_cast<FunctionDecl>(D)) {
++
++	FunctionDecl::TemplatedKind TemplKind = Function->getTemplatedKind();
++	switch(TemplKind){
++	  case FunctionDecl::TK_MemberSpecialization: 
++	  case FunctionDecl::TK_DependentFunctionTemplateSpecialization: 
++	  case FunctionDecl::TK_FunctionTemplateSpecialization: 
++		TemplateArgList = Function->getTemplateSpecializationArgs();
++		break;
++	  default: break;
++	}
++
++  }
++
++  if(!TemplateArgList)
++	  return clang_getNullCursor();
++
++  assert(Index < TemplateArgList->size() && "getTemplateSpecializationArgument(): Index out of bounds");
++
++  return MakeCursorTemplateArgument(&((*TemplateArgList)[Index]), D, static_cast<CXTranslationUnit>(C.data[2]));
++}
++
++unsigned clang_isTemplateArgument(CXCursor C)
++{
++	return (C.kind >= CXCursor_TemplateNullArgument && C.kind <= CXCursor_TemplatePackArgument) ? 1 : 0;
++}
++
++const TemplateArgument* getTemplateArgumentFromCursor(CXCursor C)
++{
++  if(clang_isTemplateArgument(C) == 0)
++    return 0;
++
++  return static_cast<const TemplateArgument*>(C.data[1]);
++}
++
++CXType clang_getTemplateArgumentValueAsType(CXCursor C)
++{
++  CXTranslationUnit TU = cxcursor::getCursorTU(C);
++  const TemplateArgument* TemplateArg = getTemplateArgumentFromCursor(C);
++
++  if(!TemplateArg || TemplateArg->getKind() != TemplateArgument::Type)
++    return cxtype::MakeCXType(QualType(), TU);
++
++  return cxtype::MakeCXType(TemplateArg->getAsType(), TU);
++}
++
++long long clang_getTemplateArgumentValueAsIntegral(CXCursor C)
++{
++  const TemplateArgument* TemplateArg = getTemplateArgumentFromCursor(C);
++
++  if(!TemplateArg || TemplateArg->getKind() != TemplateArgument::Integral)
++    return LLONG_MIN; 
++
++  return TemplateArg->getAsIntegral()->getSExtValue();
++}
++
++CXCursor clang_getTemplateArgumentValueAsDeclaration(CXCursor C)
++{
++  const TemplateArgument* TemplateArg = getTemplateArgumentFromCursor(C);
++
++  if(!TemplateArg || TemplateArg->getKind() != TemplateArgument::Declaration)
++    return clang_getNullCursor(); 
++
++  Decl* D = TemplateArg->getAsDecl();
++  if(!D)
++	return clang_getNullCursor(); 
++
++  CXTranslationUnit TU = cxcursor::getCursorTU(C);
++
++  return MakeCXCursor(D, TU);
++}
++
++CXCursor clang_getTemplateArgumentValueAsTemplate(CXCursor C)
++{
++  const TemplateArgument* TemplateArg = getTemplateArgumentFromCursor(C);
++
++  if(!TemplateArg || TemplateArg->getKind() != TemplateArgument::Template)
++    return clang_getNullCursor(); 
++
++  TemplateDecl* D = TemplateArg->getAsTemplate().getAsTemplateDecl();
++  if(!D)
++	return clang_getNullCursor();
++
++  CXTranslationUnit TU = cxcursor::getCursorTU(C);
++
++  return MakeCXCursor(D, TU);
++}
++
++CXCursor clang_getTemplateArgumentValueAsExpression(CXCursor C)
++{
++  const TemplateArgument* TemplateArg = getTemplateArgumentFromCursor(C);
++
++  if(!TemplateArg || TemplateArg->getKind() != TemplateArgument::Expression)
++    return clang_getNullCursor(); 
++
++  Expr* E = TemplateArg->getAsExpr();
++  if(!E)
++	return clang_getNullCursor();
++
++  CXTranslationUnit TU = cxcursor::getCursorTU(C);
++
++  // FIXME: Currently passes 0 as the parent - how do we get the real parent?
++  return MakeCXCursor(E, 0, TU);
++}
++
++unsigned clang_getTemplateNumParameters(CXCursor C)
++{
++  if (!clang_isDeclaration(C.kind))
++    return UINT_MAX;
++    
++  Decl *D = getCursorDecl(C);
++  if (!D)
++    return UINT_MAX;
++
++  TemplateParameterList* TemplateParamList = 0;
++  if (RedeclarableTemplateDecl *TempDecl
++               = dyn_cast<RedeclarableTemplateDecl>(D)) {
++    
++	TemplateParamList =  TempDecl->getTemplateParameters();
++
++  } else if (ClassTemplatePartialSpecializationDecl *ClassPartialSpec
++               = dyn_cast<ClassTemplatePartialSpecializationDecl>(D)) {
++
++	TemplateParamList =  ClassPartialSpec->getTemplateParameters();
++  }
++
++  return (TemplateParamList == 0) ? UINT_MAX : TemplateParamList->size();
++}
++
++CXCursor clang_getTemplateParameter(CXCursor C, unsigned Index)
++{
++  if (!clang_isDeclaration(C.kind))
++    return clang_getNullCursor();
++    
++  Decl *D = getCursorDecl(C);
++  if (!D)
++    return clang_getNullCursor();
++
++  TemplateParameterList* TemplateParamList = 0;
++  if (RedeclarableTemplateDecl *TempDecl
++               = dyn_cast<RedeclarableTemplateDecl>(D)) {
++    
++	TemplateParamList =  TempDecl->getTemplateParameters();
++
++  } else if (ClassTemplatePartialSpecializationDecl *ClassPartialSpec
++               = dyn_cast<ClassTemplatePartialSpecializationDecl>(D)) {
++
++	TemplateParamList =  ClassPartialSpec->getTemplateParameters();
++  }
++
++  if(!TemplateParamList)
++	  return clang_getNullCursor();
++
++  assert(Index < TemplateParamList->size() && "getTemplateParameter(): Index out of bounds");
++
++  CXTranslationUnit TU = cxcursor::getCursorTU(C);
++  return MakeCXCursor(TemplateParamList->getParam(Index), TU);
++}
++
+ } // end extern "C"
+diff -rupN clang-3.1.src/tools/libclang/CXCursor.cpp clang-3.1.src/tools/libclang/CXCursor.cpp
+--- clang-3.1.src/tools/libclang/CXCursor.cpp	2012-04-14 02:33:13.000000000 +0200
++++ clang-3.1.src/tools/libclang/CXCursor.cpp	2012-10-18 21:41:03.379191284 +0200
+@@ -750,6 +750,29 @@ cxcursor::getCursorOverloadedDeclRef(CXC
+                                        reinterpret_cast<uintptr_t>(C.data[1])));
+ }
+ 
++CXCursor cxcursor::MakeCursorTemplateArgument(const TemplateArgument *Arg, Decl* ParentDecl,
++                                               CXTranslationUnit TU) {
++  assert(Arg && ParentDecl && TU && "Invalid arguments!");
++
++  CXCursorKind K;
++#define TAKIND(X) case TemplateArgument::X: K = CXCursor_Template##X##Argument; break
++  switch(Arg->getKind())
++  {
++	TAKIND(Null);
++	TAKIND(Type);
++	TAKIND(Declaration);
++	TAKIND(Integral);
++	TAKIND(Template);
++	TAKIND(TemplateExpansion);
++	TAKIND(Expression);
++	TAKIND(Pack);
++  }
++#undef TAKIND
++
++  CXCursor C = { K, 0, { (void*)ParentDecl, (void*)Arg, TU } };
++  return C;    
++}
++
+ Decl *cxcursor::getCursorDecl(CXCursor Cursor) {
+   return (Decl *)Cursor.data[0];
+ }
+diff -rupN clang-3.1.src/tools/libclang/CXCursor.h clang-3.1.src/tools/libclang/CXCursor.h
+--- clang-3.1.src/tools/libclang/CXCursor.h	2012-02-15 01:54:55.000000000 +0100
++++ clang-3.1.src/tools/libclang/CXCursor.h	2012-10-18 21:41:44.131192411 +0200
+@@ -42,6 +42,7 @@ class TemplateDecl;
+ class TemplateName;
+ class TypeDecl;
+ class VarDecl;
++class TemplateArgument;
+   
+ namespace cxcursor {
+ 
+@@ -195,6 +196,8 @@ typedef llvm::PointerUnion3<OverloadExpr
+ std::pair<OverloadedDeclRefStorage, SourceLocation>
+   getCursorOverloadedDeclRef(CXCursor C);
+   
++CXCursor MakeCursorTemplateArgument(const TemplateArgument* arg, Decl* ParentDecl, CXTranslationUnit TU);
++  
+ Decl *getCursorDecl(CXCursor Cursor);
+ Expr *getCursorExpr(CXCursor Cursor);
+ Stmt *getCursorStmt(CXCursor Cursor);
+diff -rupN clang-3.1.src/tools/libclang/CXType.cpp clang-3.1.src/tools/libclang/CXType.cpp
+--- clang-3.1.src/tools/libclang/CXType.cpp	2012-04-11 21:32:19.000000000 +0200
++++ clang-3.1.src/tools/libclang/CXType.cpp	2012-10-18 21:43:13.203194875 +0200
+@@ -86,6 +86,9 @@ static CXTypeKind GetTypeKind(QualType T
+     TKCASE(FunctionProto);
+     TKCASE(ConstantArray);
+     TKCASE(Vector);
++    TKCASE(TemplateTypeParm);
++    TKCASE(TemplateSpecialization);
++    TKCASE(Elaborated);
+     default:
+       return CXType_Unexposed;
+   }
+@@ -345,7 +348,10 @@ try_again:
+     D = cast<InjectedClassNameType>(TP)->getDecl();
+     break;
+ 
+-  // FIXME: Template type parameters!      
++  // FIXME: Template type parameters!
++  case Type::TemplateTypeParm:
++    D = cast<TemplateTypeParmType>(TP)->getDecl();
++    break;
+ 
+   case Type::Elaborated:
+     TP = cast<ElaboratedType>(TP)->getNamedType().getTypePtrOrNull();
+@@ -409,6 +415,9 @@ CXString clang_getTypeKindSpelling(enum
+     TKIND(FunctionProto);
+     TKIND(ConstantArray);
+     TKIND(Vector);
++	TKIND(TemplateTypeParm);
++	TKIND(TemplateSpecialization);
++	TKIND(Elaborated);
+   }
+ #undef TKIND
+   return cxstring::createCXString(s);

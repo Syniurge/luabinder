@@ -1,21 +1,21 @@
 luabinder
 =========
 
-luabinder is a libclang-based generator for Luabind. With the help of the C++ understanding of Clang and its AST it automatically generates elegant Luabind register functions from headers for:
+luabinder is a libclang-based generator for Luabind. Thanks to the C++ understanding of Clang and its AST it automatically generates elegant Luabind register functions from headers for:
  - namespaces
  - classes
  - methods and global functions
  - enums
  - constants
  - operators
- - template specializations of internal templates as well as of some external templates whenever they are required by functions, e.g std::pair<bool, float>
+ - template specializations of templates declared inside the input folder as well as of some external templates whenever they are required by functions, e.g std::pair<bool, float>
 
 Usage
 ========
 
     luabinder <output folder> <input folder constraint> <Clang command-line parameters...>
 
-Like in a standard compiler call, every header included by the input files is parsed by libclang, but bindings will be generated only for the files located inside the input folder "constraint", with the exception of types for function arguments or return values and template specializations. It creates headers that mirror the input folder structure (e.g bindings for classes in OgreEntity.h goes into a luabindOgreEntity.h in the output folder), and a global header and register function.
+As in a standard compiler call, every header included by the input file is parsed by libclang, but bindings will be generated only for the files located inside the input folder "constraint", with the exception of types for function arguments or return values and template specializations. It creates headers that mirror the input folder structure (e.g bindings for classes in OgreEntity.h goes into a luabindOgreEntity.h in the output folder), and a global header and register function.
 
 Ex.:
 

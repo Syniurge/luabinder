@@ -11,11 +11,11 @@ luabinder is a libclang-based generator for Luabind. With the help of the C++ un
  - template specializations of internal templates as well as of some external templates whenever they are required by functions, e.g std::pair<bool, float>
 
 Usage
-========
+----------
 
     luabinder <output folder> <input folder constraint> <Clang command-line parameters...>
 
-Like in a standard compiler call, every header included by the input files is parsed by libclang, but bindings will be generated only for the files located inside the input folder "constraint", with the exception of types for function arguments or return values and template specializations. It creates headers that mirror the input folder structure (e.g bindings for classes in OgreEntity.h goes into a luabindOgreEntity.h in the output folder), and a global header and register function.
+As in a standard compiler call, each header included by the input files is parsed by libclang, but bindings are generated only for the files located inside the input folder "constraint", with the exception of types for function arguments or return values and template specializations. It creates headers that mirror the input folder structure (e.g bindings for classes in OgreEntity.h goes into a luabindOgreEntity.h in the output folder), and a global header and register function.
 
 Ex.:
 
@@ -30,7 +30,7 @@ NOTE: a frequent mistake is to believe that development tools released under the
 
 
 Building
-========
+----------
 
 You'll first need to apply libclang-3.1_templates_funkmonkey.patch to libclang's source code and recompile it before building luabinder (refer to http://clang.llvm.org/get_started.html for LLVM and Clang building instructions).
 
@@ -41,8 +41,8 @@ At the time of writing (April 2013) libclang still doesn't expose template speci
     sudo make install
 
 
-Todo
-======
+To do
+----------
 
 Luabind is already pretty comprehensive, but two TODO remain:
 
